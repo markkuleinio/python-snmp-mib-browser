@@ -49,10 +49,12 @@ mibtree.add_subnode("org", "3").add_subnode("dod", "6").add_subnode("internet", 
 
 name_waiting = None
 mib_name = None
+prev_line = None
+more_needed = False
 
 for line in sys.stdin:
     line = line.strip()
-    if line.startswith("--") or line.find(",") >= 0:
+    if line == "" or line.startswith("--") or line.find(",") >= 0:
         continue
     if "DEFINITIONS" in line.split() and "BEGIN" in line.split():
         # "mibname DEFINITIONS ::= BEGIN"
@@ -64,22 +66,33 @@ for line in sys.stdin:
         # Save the name and keep looping
         name_waiting = line.split()[0]
         continue
-    if line.find("::=") == -1:
-        continue
-    # Now we have a line where is "::="
-    if name_waiting:
+    if more_needed:
+        line = prev_line + " " + line
+        more_needed = False
+    if line.find("OBJECT IDENTIFIER") >= 0:
+        if line == "OBJECT IDENTIFIER":
+            continue
+        elif line.find(")") >= 0:
+            continue
+        elif line.find("::=") == -1:
+            # We need to read more to find the assignment
+            more_needed = True
+            prev_line = line
+            continue
+        cols = line.split()
+        name = cols[0]
+        parent = cols[5]
+        number = cols[6]
+    elif name_waiting:
+        if line.find("::=") == -1:
+            continue
         name = name_waiting
         name_waiting = None
         cols = line.split()
         parent = cols[2]
         number = cols[3]
     else:
-        if line.find("OBJECT IDENTIFIER") == -1:
-            continue
-        cols = line.split()
-        name = cols[0]
-        parent = cols[5]
-        number = cols[6]
+        continue
     #print("{} = {{ {} {} }}".format(name, parent, number))
     if find_node(mibtree, name):
         continue
