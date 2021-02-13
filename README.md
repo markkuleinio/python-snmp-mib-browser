@@ -5,10 +5,10 @@ Example:
 
 ```
 $ cat /var/lib/snmp/mibs/ietf/SNMPv2-SMI /var/lib/snmp/mibs/ietf/IPV6-MIB | python3 mib-browser.py
-.1 = (unknown MIB)::iso
-.1.3 = (unknown MIB)::org
-.1.3.6 = (unknown MIB)::dod
-.1.3.6.1 = (unknown MIB)::internet
+.1 = (root)::iso
+.1.3 = SNMPv2-SMI::org
+.1.3.6 = SNMPv2-SMI::dod
+.1.3.6.1 = SNMPv2-SMI::internet
 .1.3.6.1.1 = SNMPv2-SMI::directory
 .1.3.6.1.2 = SNMPv2-SMI::mgmt
 .1.3.6.1.2.1 = SNMPv2-SMI::mib-2
@@ -31,5 +31,8 @@ $ cat /var/lib/snmp/mibs/ietf/SNMPv2-SMI /var/lib/snmp/mibs/ietf/IPV6-MIB | pyth
 ```
 
 Depending on the MIB file contents/dependencies you may need to find several files to read before
-your actual MIB file you are interested in. Also note that the parsing is not done in any structural
-way but just by trial and error.
+your actual MIB file you are interested in (check the `IMPORTS ... FROM <mibname>` statements
+in the beginning of the MIB files). `SNMPv2-SMI` is always needed as it contains the first
+levels from the root (iso.org.dod.internet) as well as other commonly needed items.
+
+Also note that parsing is not done in any structural way but just by trial and error.

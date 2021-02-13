@@ -1,3 +1,4 @@
+import re
 import sys
 
 class Node:
@@ -41,11 +42,7 @@ def print_list(node):
         print_list(subnode)
 
 
-#mibtree = Node("enterprises", ".1.3.6.1.4.1")
-
-mibtree = Node("iso", ".1")
-mibtree.add_subnode("org", "3").add_subnode("dod", "6").add_subnode("internet", "1").\
-        add_subnode("private", "4").add_subnode("enterprises", "1")
+mibtree = Node("iso", ".1", "(root)")
 
 name_waiting = None
 mib_name = None
@@ -54,22 +51,38 @@ more_needed = False
 
 for line in sys.stdin:
     line = line.strip()
-    if line == "" or line.startswith("--") or line.find(",") >= 0:
+    cols = line.split()
+    if line == "" or line.startswith("--") or line.find(",") >= 0 or cols[0] == "SYNTAX":
         continue
-    if "DEFINITIONS" in line.split() and "BEGIN" in line.split():
-        # "mibname DEFINITIONS ::= BEGIN"
-        mib_name = line.split()[0]
-        continue
-    if line.find("MODULE-IDENTITY") > 0 or line.find("OBJECT-TYPE") > 0 or \
-            line.find("NOTIFICATION-TYPE") > 0:
-        # Looks for lines like "eventInformMsg OBJECT-TYPE"
+    if name_waiting:
+        if "::=" not in line:
+            continue
+        name = name_waiting
+        name_waiting = None
+        match = re.search(r"::=\s*\{\s*([\w-]+)\s+([0-9]+)\s*\}", line)
+        parent = match[1]
+        number = match[2]
+        # Added to the tree later below
+    elif (
+        len(cols) == 2 and cols[1] in [
+            "OBJECT-IDENTITY",
+            "OBJECT-TYPE",
+            "MODULE-IDENTITY",
+            "NOTIFICATION-TYPE",
+        ]) or (
+        len(cols) == 3 and cols[1] == "OBJECT" and cols[2] == "IDENTIFIER"
+    ):
         # Save the name and keep looping
-        name_waiting = line.split()[0]
+        name_waiting = cols[0]
         continue
-    if more_needed:
+    elif "DEFINITIONS" in cols and "::=" in cols and "BEGIN" in cols:
+        # "mibname DEFINITIONS ::= BEGIN"
+        mib_name = cols[0]
+        continue
+    elif more_needed:
         line = prev_line + " " + line
         more_needed = False
-    if line.find("OBJECT IDENTIFIER") >= 0:
+    elif line.find("OBJECT IDENTIFIER") >= 0:
         if line == "OBJECT IDENTIFIER":
             continue
         elif line.find(")") >= 0:
@@ -79,22 +92,18 @@ for line in sys.stdin:
             more_needed = True
             prev_line = line
             continue
-        cols = line.split()
-        name = cols[0]
-        parent = cols[5]
-        number = cols[6]
-    elif name_waiting:
-        if line.find("::=") == -1:
-            continue
-        name = name_waiting
-        name_waiting = None
-        cols = line.split()
-        parent = cols[2]
-        number = cols[3]
+        elif line.startswith("OBJECT IDENTIFIER"):
+            # Let's take the previous line as well
+            line = prev_line + " " + line
+        match = re.search(r"([\w-]+)\s*OBJECT IDENTIFIER\s*::=\s*\{\s*([\w-]+)\s*([0-9]+)\s*\}", line)
+        name = match[1]
+        parent = match[2]
+        number = match[3]
     else:
+        prev_line = line
         continue
     #print("{} = {{ {} {} }}".format(name, parent, number))
-    if find_node(mibtree, name):
+    if find_node(mibtree, name) or parent == "0":
         continue
     node = find_node(mibtree, parent)
     if node is None:
