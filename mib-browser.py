@@ -48,12 +48,14 @@ name_waiting = None
 mib_name = None
 prev_line = None
 more_needed = False
+imported_items = []
+parsing_imports = False
+
+imports = {}
 
 for line in sys.stdin:
     line = line.strip()
     cols = line.split()
-    if line == "" or line.startswith("--") or line.find(",") >= 0 or cols[0] == "SYNTAX":
-        continue
     if name_waiting:
         if "::=" not in line:
             continue
@@ -63,6 +65,26 @@ for line in sys.stdin:
         parent = match[1]
         number = match[2]
         # Added to the tree later below
+    elif parsing_imports:
+        words = re.split(r"[, ]+", line)
+        i = 0
+        while i < len(words):
+            if words[i] != "FROM":
+                if words[i]:
+                    imported_items.append(words[i])
+            else:
+                imported_from = words[i+1]
+                i += 1
+                if imported_from.endswith(";"):
+                    parsing_imports = False
+                    imported_from = imported_from[:-1]
+                for item in imported_items:
+                    imports[item] = imported_from
+                imported_items = []
+            i += 1
+        continue
+    elif line == "" or line.startswith("--") or line.find(",") >= 0 or cols[0] == "SYNTAX":
+        continue
     elif (
         len(cols) == 2 and cols[1] in [
             "OBJECT-IDENTITY",
@@ -99,6 +121,27 @@ for line in sys.stdin:
         name = match[1]
         parent = match[2]
         number = match[3]
+    elif line.startswith("IMPORTS"):
+        imported_items = []
+        parsing_imports = True
+        words = re.split(r"[, ]+", line)
+        if len(words) == 1:
+            continue
+        i = 1   # Skip the first word "IMPORTS"
+        while i < len(words):
+            if words[i] != "FROM":
+                imported_items.append(words[i])
+            else:
+                imported_from = words[i+1]
+                i += 1
+                if imported_from.endswith(";"):
+                    parsing_imports = False
+                    imported_from = imported_from[:-1]
+                for item in imported_items:
+                    imports[item] = imported_from
+                imported_items = []
+            i += 1
+        continue
     else:
         prev_line = line
         continue
@@ -107,7 +150,10 @@ for line in sys.stdin:
         continue
     node = find_node(mibtree, parent)
     if node is None:
-        print("Data error: parent {0} was not found for \"{1} = {{ {0} {2} }}\"".format(parent, name, number))
+        if parent in imports:
+            print("Missing input: MIB file for {} is needed for resolving \"{} = {{ {} {} }}\"".format(imports[parent], name, parent, number))
+        else:
+            print("Missing input: parent {0} was not found for \"{1} = {{ {0} {2} }}\"".format(parent, name, number))
     else:
         node.add_subnode(name, number, mib_name)
 
