@@ -50,6 +50,7 @@ prev_line = None
 more_needed = False
 imported_items = []
 parsing_imports = False
+missing_items = set()
 
 imports = {}
 
@@ -150,8 +151,11 @@ for line in sys.stdin:
         continue
     node = find_node(mibtree, parent)
     if node is None:
-        if parent in imports:
-            print("Missing input: MIB file for {} is needed for resolving \"{} = {{ {} {} }}\"".format(imports[parent], name, parent, number))
+        if parent in missing_items:
+            missing_items.add(name)
+        elif parent in imports:
+            print("Missing input: MIB file for {} is needed for resolving \"{} = {{ {} {} }}\" (and others in the same tree)".format(imports[parent], name, parent, number))
+            missing_items.add(name)
         else:
             print("Missing input: parent {0} was not found for \"{1} = {{ {0} {2} }}\"".format(parent, name, number))
     else:
