@@ -191,11 +191,14 @@ def load_mib_by_name(mib_name: str):
 def get_mib_name_from_file(path: Path) -> Optional[str]:
     """Returns the MIB name from the MIB file."""
     with open(path) as f:
-        for line in f:
-            line = line.strip()
-            match = re.search(r"^([\w-]+)\s+DEFINITIONS\s*::=\s*BEGIN", line)
-            if match:
-                return match[1]
+        try:
+            for line in f:
+                line = line.strip()
+                match = re.search(r"^([\w-]+)\s+DEFINITIONS\s*::=\s*BEGIN", line)
+                if match:
+                    return match[1]
+        except UnicodeDecodeError:
+            return None
     return None
 
 
@@ -207,8 +210,6 @@ def get_all_mibs(path: Path):
             mib_name = get_mib_name_from_file(p)
             if mib_name:
                 mib_files[mib_name] = p
-            else:
-                print(f"Could not get MIB name from {p}")
         elif p.is_dir():
             mib_files.update(get_all_mibs(p))
     return mib_files
@@ -221,10 +222,26 @@ def main():
         metavar="mibname",
         help="The name of the MIB to be shown",
     )
+    parser.add_argument(
+        "-a", "--add",
+        metavar="path(s)",
+        help="Add given path(s) (comma-separated) to MIB search list",
+        dest="add_paths",
+        required=False,
+    )
+    parser.add_argument(
+        "-n", "--no-default",
+        help="Do not use the default MIB search path",
+        required=False,
+        action="store_true",
+    )
     args = parser.parse_args()
-
+    searchpath = [] if args.no_default else ["/var/lib/snmp/mibs"]
+    if args.add_paths:
+        searchpath += args.add_paths.split(",")
     global all_mib_files
-    all_mib_files = get_all_mibs(Path("/var/lib/snmp/mibs"))
+    for path in searchpath:
+        all_mib_files.update(get_all_mibs(Path(path)))
 
     load_mib_by_name(args.mib_name)
 
