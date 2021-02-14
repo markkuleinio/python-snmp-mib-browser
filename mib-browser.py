@@ -6,10 +6,11 @@ from typing import List, Optional
 
 class RawMibItem:
 
-    def __init__(self, name: str, parent: str, index: int):
+    def __init__(self, name: str, parent: str, index: int, mib_name: str):
         self.name: str = name
         self.parent: str = parent
         self.index: int = index
+        self.mib_name: str = mib_name
 
 
 class RawMib:
@@ -19,7 +20,7 @@ class RawMib:
         self.items: List[RawMibItem] = []
 
     def add_item(self, name: str, parent: str, index: int):
-        self.items.append(RawMibItem(name, parent, index))
+        self.items.append(RawMibItem(name, parent, index, self.name))
 
 
 class Node:
@@ -57,13 +58,40 @@ def find_node(node, name):
     return None
 
 
+def find_item_in_all_mibs(all_mibs: List[RawMib], item_name: str):
+    for mib in all_mibs:
+        for item in mib.items:
+            if item.name == item_name:
+                return item
+    return None
+
+
+def add_item(mibtree: Node, all_mibs: List[RawMib], item: RawMibItem):
+    """Adds the item in the MIB tree, recursively creating the parent
+    items as well if needed."""
+    node = find_node(mibtree, item.name)
+    if node:
+        return True
+    parent_item = find_item_in_all_mibs(all_mibs, item.parent)
+    if not parent_item:
+        return False
+    result = add_item(mibtree, all_mibs, parent_item)
+    if result:
+        parent_node = find_node(mibtree, parent_item.name)
+        parent_node.add_subnode(item.name, item.index, item.mib_name)
+        return True
+    return False
+
+
 def print_list(node):
     print("{} = {}::{}".format(node.oid, node.mib_name, node.name))
     for subnode in node.subnodes:
         print_list(subnode)
 
 
-all_mibs: List[RawMib] = []
+root_mib = RawMib("(root)")
+root_mib.add_item("iso", "", 1)
+all_mibs: List[RawMib] = [ root_mib ]
 all_mib_files: dict = {}
 missing_imports = {}
 missed_mibs = []
@@ -182,7 +210,8 @@ def load_mib_by_name(mib_name: str):
                 prev_line = line
                 continue
             #print("{} = {{ {} {} }}".format(name, parent, number))
-            mib.add_item(name, parent, int(number))
+            if parent != "0":   # Skip zeroDotZero
+                mib.add_item(name, parent, int(number))
     if mib:
         global missing_imports
         for item, mib_name in imports.items():
@@ -253,10 +282,7 @@ def main():
     missing_items = set()
     for mib in all_mibs:
         for item in mib.items:
-            if find_node(mibtree, item.name) or item.parent == "0":
-                continue
-            node = find_node(mibtree, item.parent)
-            if node is None:
+            if not add_item(mibtree, all_mibs, item):
                 if item.parent in missing_items:
                     missing_items.add(item.name)
                 elif item.parent in missing_imports:
@@ -268,8 +294,6 @@ def main():
                     print("Missing input: parent {0} was not found for \"{1} = {{ {0} {2} }}\"".format(
                         item.parent, item.name, item.index,
                     ))
-            else:
-                node.add_subnode(item.name, item.index, mib.name)
 
     print_list(mibtree)
 
