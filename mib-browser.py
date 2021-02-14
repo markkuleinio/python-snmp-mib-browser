@@ -1,7 +1,8 @@
+import argparse
 import re
-import sys
 from dataclasses import dataclass
-from typing import List
+from pathlib import Path
+from typing import List, Optional
 
 
 @dataclass
@@ -63,10 +64,14 @@ def print_list(node):
 
 
 all_mibs: List[RawMib] = []
-imports = {}
+all_mib_files: dict = {}
+missing_imports = {}
 
 
-def load_mib_data(input_lines: List[str]):
+def load_mib_by_name(mib_name: str):
+    if mib_name not in all_mib_files:
+        print(f"MIB '{mib_name}' not found")
+        return False
     mib = None
     name_waiting = None
     prev_line = None
@@ -74,132 +79,179 @@ def load_mib_data(input_lines: List[str]):
     imported_items = []
     parsing_imports = False
     global all_mibs
-    global imports
+    imports = {}
 
-    for line in input_lines:
-        line = line.strip()
-        cols = line.split()
-        if name_waiting:
-            if "::=" not in line:
-                continue
-            name = name_waiting
-            name_waiting = None
-            match = re.search(r"::=\s*\{\s*([\w-]+)\s+([0-9]+)\s*\}", line)
-            parent = match[1]
-            number = match[2]
-            # Added to the tree later below
-        elif parsing_imports:
-            words = re.split(r"[, ]+", line)
-            i = 0
-            while i < len(words):
-                if words[i] != "FROM":
-                    if words[i]:
-                        imported_items.append(words[i])
-                else:
-                    imported_from = words[i+1]
+    with open(all_mib_files[mib_name]) as input_file:
+        for line in input_file:
+            line = line.strip()
+            cols = line.split()
+            if name_waiting:
+                if "::=" not in line:
+                    continue
+                name = name_waiting
+                name_waiting = None
+                match = re.search(r"::=\s*\{\s*([\w-]+)\s+([0-9]+)\s*\}", line)
+                parent = match[1]
+                number = match[2]
+                # Added to the tree later below
+            elif parsing_imports:
+                words = re.split(r"[, ]+", line)
+                i = 0
+                while i < len(words):
+                    if words[i] != "FROM":
+                        if words[i]:
+                            imported_items.append(words[i])
+                    else:
+                        imported_from = words[i+1]
+                        i += 1
+                        if imported_from.endswith(";"):
+                            parsing_imports = False
+                            imported_from = imported_from[:-1]
+                        for item in imported_items:
+                            imports[item] = imported_from
+                        imported_items = []
                     i += 1
-                    if imported_from.endswith(";"):
-                        parsing_imports = False
-                        imported_from = imported_from[:-1]
-                    for item in imported_items:
-                        imports[item] = imported_from
-                    imported_items = []
-                i += 1
-            continue
-        elif line == "" or line.startswith("--") or line.find(",") >= 0 or cols[0] == "SYNTAX":
-            continue
-        elif (
-            len(cols) == 2 and cols[1] in [
-                "OBJECT-IDENTITY",
-                "OBJECT-TYPE",
-                "MODULE-IDENTITY",
-                "NOTIFICATION-TYPE",
-            ]) or (
-            len(cols) == 3 and cols[1] == "OBJECT" and cols[2] == "IDENTIFIER"
-        ):
-            # Save the name and keep looping
-            name_waiting = cols[0]
-            continue
-        elif "DEFINITIONS" in cols and "::=" in cols and "BEGIN" in cols:
-            # "mibname DEFINITIONS ::= BEGIN"
-            mib_name = cols[0]
-            if mib:
-                all_mibs.append(mib)
-            mib = RawMib(mib_name)
-            continue
-        elif more_needed:
-            line = prev_line + " " + line
-            more_needed = False
-        elif line.find("OBJECT IDENTIFIER") >= 0:
-            if line == "OBJECT IDENTIFIER":
                 continue
-            elif line.find(")") >= 0:
+            elif line == "" or line.startswith("--") or line.find(",") >= 0 or cols[0] == "SYNTAX":
                 continue
-            elif line.find("::=") == -1:
-                # We need to read more to find the assignment
-                more_needed = True
+            elif (
+                len(cols) == 2 and cols[1] in [
+                    "OBJECT-IDENTITY",
+                    "OBJECT-TYPE",
+                    "MODULE-IDENTITY",
+                    "NOTIFICATION-TYPE",
+                ]) or (
+                len(cols) == 3 and cols[1] == "OBJECT" and cols[2] == "IDENTIFIER"
+            ):
+                # Save the name and keep looping
+                name_waiting = cols[0]
+                continue
+            elif "DEFINITIONS" in cols and "::=" in cols and "BEGIN" in cols:
+                # "mibname DEFINITIONS ::= BEGIN"
+                mib_name = cols[0]
+                if mib:
+                    all_mibs.append(mib)
+                mib = RawMib(mib_name)
+                continue
+            elif more_needed:
+                line = prev_line + " " + line
+                more_needed = False
+            elif line.find("OBJECT IDENTIFIER") >= 0:
+                if line == "OBJECT IDENTIFIER":
+                    continue
+                elif line.find(")") >= 0:
+                    continue
+                elif line.find("::=") == -1:
+                    # We need to read more to find the assignment
+                    more_needed = True
+                    prev_line = line
+                    continue
+                elif line.startswith("OBJECT IDENTIFIER"):
+                    # Let's take the previous line as well
+                    line = prev_line + " " + line
+                match = re.search(r"([\w-]+)\s*OBJECT IDENTIFIER\s*::=\s*\{\s*([\w-]+)\s*([0-9]+)\s*\}", line)
+                name = match[1]
+                parent = match[2]
+                number = match[3]
+            elif line.startswith("IMPORTS"):
+                imported_items = []
+                parsing_imports = True
+                words = re.split(r"[, ]+", line)
+                if len(words) == 1:
+                    continue
+                i = 1   # Skip the first word "IMPORTS"
+                while i < len(words):
+                    if words[i] != "FROM":
+                        imported_items.append(words[i])
+                    else:
+                        imported_from = words[i+1]
+                        i += 1
+                        if imported_from.endswith(";"):
+                            parsing_imports = False
+                            imported_from = imported_from[:-1]
+                        for item in imported_items:
+                            imports[item] = imported_from
+                        imported_items = []
+                    i += 1
+                continue
+            else:
                 prev_line = line
                 continue
-            elif line.startswith("OBJECT IDENTIFIER"):
-                # Let's take the previous line as well
-                line = prev_line + " " + line
-            match = re.search(r"([\w-]+)\s*OBJECT IDENTIFIER\s*::=\s*\{\s*([\w-]+)\s*([0-9]+)\s*\}", line)
-            name = match[1]
-            parent = match[2]
-            number = match[3]
-        elif line.startswith("IMPORTS"):
-            imported_items = []
-            parsing_imports = True
-            words = re.split(r"[, ]+", line)
-            if len(words) == 1:
-                continue
-            i = 1   # Skip the first word "IMPORTS"
-            while i < len(words):
-                if words[i] != "FROM":
-                    imported_items.append(words[i])
-                else:
-                    imported_from = words[i+1]
-                    i += 1
-                    if imported_from.endswith(";"):
-                        parsing_imports = False
-                        imported_from = imported_from[:-1]
-                    for item in imported_items:
-                        imports[item] = imported_from
-                    imported_items = []
-                i += 1
-            continue
-        else:
-            prev_line = line
-            continue
-        #print("{} = {{ {} {} }}".format(name, parent, number))
-        mib.add_item(name, parent, int(number))
+            #print("{} = {{ {} {} }}".format(name, parent, number))
+            mib.add_item(name, parent, int(number))
     if mib:
+        global missing_imports
+        for item, mib_name in imports.items():
+            if not load_mib_by_name(mib_name):
+                missing_imports[item] = mib_name
         all_mibs.append(mib)
+    return True
 
 
-input_lines = sys.stdin.readlines()
-load_mib_data(input_lines)
+def get_mib_name_from_file(path: Path) -> Optional[str]:
+    """Returns the MIB name from the MIB file."""
+    with open(path) as f:
+        for line in f:
+            line = line.strip()
+            match = re.search(r"^([\w-]+)\s+DEFINITIONS\s*::=\s*BEGIN", line)
+            if match:
+                return match[1]
+    return None
 
-mibtree = Node("iso", ".1", "(root)")
-missing_items = set()
-for mib in all_mibs:
-    for item in mib.items:
-        if find_node(mibtree, item.name) or item.parent == "0":
-            continue
-        node = find_node(mibtree, item.parent)
-        if node is None:
-            if item.parent in missing_items:
-                missing_items.add(item.name)
-            elif item.parent in imports:
-                print("Missing input: MIB file for {} is needed for resolving \"{} = {{ {} {} }}\" (and others in the same tree)".format(
-                    imports[item.parent], item.name, item.parent, item.index,
-                ))
-                missing_items.add(item.name)
+
+def get_all_mibs(path: Path):
+    """Returns all MIB names with their file names."""
+    mib_files: dict = {}
+    for p in path.glob("*"):
+        if p.is_file():
+            mib_name = get_mib_name_from_file(p)
+            if mib_name:
+                mib_files[mib_name] = p
             else:
-                print("Missing input: parent {0} was not found for \"{1} = {{ {0} {2} }}\"".format(
-                    item.parent, item.name, item.index,
-                ))
-        else:
-            node.add_subnode(item.name, item.index, mib.name)
+                print(f"Could not get MIB name from {p}")
+        elif p.is_dir():
+            mib_files.update(get_all_mibs(p))
+    return mib_files
 
-print_list(mibtree)
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "mib_name",
+        metavar="mibname",
+        help="The name of the MIB to be shown",
+    )
+    args = parser.parse_args()
+
+    global all_mib_files
+    all_mib_files = get_all_mibs(Path("/var/lib/snmp/mibs"))
+
+    load_mib_by_name(args.mib_name)
+
+    mibtree = Node("iso", ".1", "(root)")
+    missing_items = set()
+    for mib in all_mibs:
+        for item in mib.items:
+            if find_node(mibtree, item.name) or item.parent == "0":
+                continue
+            node = find_node(mibtree, item.parent)
+            if node is None:
+                if item.parent in missing_items:
+                    missing_items.add(item.name)
+                elif item.parent in missing_imports:
+                    print("Missing input: MIB file for {} is needed for resolving \"{} = {{ {} {} }}\" (and others in the same tree)".format(
+                        missing_imports[item.parent], item.name, item.parent, item.index,
+                    ))
+                    missing_items.add(item.name)
+                else:
+                    print("Missing input: parent {0} was not found for \"{1} = {{ {0} {2} }}\"".format(
+                        item.parent, item.name, item.index,
+                    ))
+            else:
+                node.add_subnode(item.name, item.index, mib.name)
+
+    print_list(mibtree)
+
+
+if __name__ == "__main__":
+    main()
