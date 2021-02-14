@@ -1,15 +1,15 @@
 import argparse
 import re
-from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Optional
 
 
-@dataclass
 class RawMibItem:
-    name: str
-    parent: str
-    index: int
+
+    def __init__(self, name: str, parent: str, index: int):
+        self.name: str = name
+        self.parent: str = parent
+        self.index: int = index
 
 
 class RawMib:
