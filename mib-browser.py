@@ -1,5 +1,25 @@
 import re
 import sys
+from dataclasses import dataclass
+from typing import List
+
+
+@dataclass
+class RawMibItem:
+    name: str
+    parent: str
+    index: int
+
+
+class RawMib:
+
+    def __init__(self, mibname: str):
+        self.name: str = mibname
+        self.items: List[RawMibItem] = []
+
+    def add_item(self, name: str, parent: str, index: int):
+        self.items.append(RawMibItem(name, parent, index))
+
 
 class Node:
     def __init__(self, name, oid, mib_name=None):
@@ -11,7 +31,7 @@ class Node:
         self.subnodes = []
 
     def add_subnode(self, name, number, mib_name=None):
-        subnode = Node(name, self.oid + "." + number, mib_name)
+        subnode = Node(name, self.oid + "." + str(number), mib_name)
         self.subnodes.append(subnode)
         self.subnodes.sort(key=oid_sort_func)
         return subnode
@@ -42,10 +62,10 @@ def print_list(node):
         print_list(subnode)
 
 
-mibtree = Node("iso", ".1", "(root)")
+all_mibs: List[RawMib] = []
 
+mib = None
 name_waiting = None
-mib_name = None
 prev_line = None
 more_needed = False
 imported_items = []
@@ -101,6 +121,9 @@ for line in sys.stdin:
     elif "DEFINITIONS" in cols and "::=" in cols and "BEGIN" in cols:
         # "mibname DEFINITIONS ::= BEGIN"
         mib_name = cols[0]
+        if mib:
+            all_mibs.append(mib)
+        mib = RawMib(mib_name)
         continue
     elif more_needed:
         line = prev_line + " " + line
@@ -147,18 +170,29 @@ for line in sys.stdin:
         prev_line = line
         continue
     #print("{} = {{ {} {} }}".format(name, parent, number))
-    if find_node(mibtree, name) or parent == "0":
-        continue
-    node = find_node(mibtree, parent)
-    if node is None:
-        if parent in missing_items:
-            missing_items.add(name)
-        elif parent in imports:
-            print("Missing input: MIB file for {} is needed for resolving \"{} = {{ {} {} }}\" (and others in the same tree)".format(imports[parent], name, parent, number))
-            missing_items.add(name)
+    mib.add_item(name, parent, int(number))
+if mib:
+    all_mibs.append(mib)
+
+mibtree = Node("iso", ".1", "(root)")
+for mib in all_mibs:
+    for item in mib.items:
+        if find_node(mibtree, item.name) or item.parent == "0":
+            continue
+        node = find_node(mibtree, item.parent)
+        if node is None:
+            if item.parent in missing_items:
+                missing_items.add(item.name)
+            elif item.parent in imports:
+                print("Missing input: MIB file for {} is needed for resolving \"{} = {{ {} {} }}\" (and others in the same tree)".format(
+                    imports[item.parent], item.name, item.parent, item.index,
+                ))
+                missing_items.add(item.name)
+            else:
+                print("Missing input: parent {0} was not found for \"{1} = {{ {0} {2} }}\"".format(
+                    item.parent, item.name, item.index,
+                ))
         else:
-            print("Missing input: parent {0} was not found for \"{1} = {{ {0} {2} }}\"".format(parent, name, number))
-    else:
-        node.add_subnode(name, number, mib_name)
+            node.add_subnode(item.name, item.index, mib.name)
 
 print_list(mibtree)
