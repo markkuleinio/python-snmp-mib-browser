@@ -66,11 +66,15 @@ def print_list(node):
 all_mibs: List[RawMib] = []
 all_mib_files: dict = {}
 missing_imports = {}
+missed_mibs = []
 
 
 def load_mib_by_name(mib_name: str):
     if mib_name not in all_mib_files:
-        print(f"MIB '{mib_name}' not found")
+        global missed_mibs
+        if mib_name not in missed_mibs:
+            print(f"MIB '{mib_name}' not found")
+            missed_mibs.append(mib_name)
         return False
     mib = None
     name_waiting = None
