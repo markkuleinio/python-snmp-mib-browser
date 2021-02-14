@@ -65,7 +65,8 @@ def print_list(node):
 all_mibs: List[RawMib] = []
 imports = {}
 
-def load_mibs():
+
+def load_mib_data(input_lines: List[str]):
     mib = None
     name_waiting = None
     prev_line = None
@@ -75,7 +76,7 @@ def load_mibs():
     global all_mibs
     global imports
 
-    for line in sys.stdin:
+    for line in input_lines:
         line = line.strip()
         cols = line.split()
         if name_waiting:
@@ -176,7 +177,8 @@ def load_mibs():
         all_mibs.append(mib)
 
 
-load_mibs()
+input_lines = sys.stdin.readlines()
+load_mib_data(input_lines)
 
 mibtree = Node("iso", ".1", "(root)")
 missing_items = set()
