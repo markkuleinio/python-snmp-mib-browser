@@ -1,6 +1,22 @@
 # python-snmp-mib-browser
 Small program to show MIB file OIDs in a list.
 
+Usage:
+
+```
+$ python3 mib-browser.py --help
+usage: mib-browser.py [-h] [-a paths] [-n] mibname
+
+positional arguments:
+  mibname               The name of the MIB to be shown
+
+optional arguments:
+  -h, --help            show this help message and exit
+  -a path(s), --add path(s)
+                        Add given path(s) (comma-separated) to MIB search list
+  -n, --no-default      Do not use the default MIB search path
+```
+
 Example:
 
 ```
